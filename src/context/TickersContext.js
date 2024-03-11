@@ -137,7 +137,6 @@ export function TickersContextProvider({children}) {
 
       ws.onmessage = message => {
         const data = JSON.parse(message.data);
-        console.log('Data', data);
         const ticker = {
           idToken: data.currencyToken.id,
           symbol: data.currencyToken.codigo,
@@ -146,7 +145,6 @@ export function TickersContextProvider({children}) {
           currencyDestination: data.currencyToken.monedaDestino.description,
           change: data.change,
         };
-        console.log('Ticker--', ticker);
         updateTicker(ticker);
 
         setTickers(prevState => {
