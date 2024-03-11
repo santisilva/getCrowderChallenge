@@ -1,82 +1,158 @@
 /* eslint-disable react/react-in-jsx-scope */
 import {createContext, useEffect, useState} from 'react';
-import useTickerDatabaseManager from '../hooks/useTickerDatabaseManager';
 import SQLite from 'react-native-sqlite-storage';
 const TickersContext = createContext({});
 
+const infoDatabase = {
+  name: 'tickers',
+  version: '1.0',
+  displayName: 'Tickers Database',
+};
+
 export function TickersContextProvider({children}) {
   const [tickers, setTickers] = useState([]);
-  const {updateTicker, getAllTickerStatesFromDatabase} =
-    useTickerDatabaseManager();
+  const [db, setDb] = useState(null);
+  const [tablesCreated, setTablesCreated] = useState(false);
+
+  const onSuccessDatabase = () => {
+    console.log('Database opened');
+  };
+  const onErrorDatabase = error => {
+    console.log('Error', error);
+  };
 
   useEffect(() => {
-    const infoDatabase = {
-      name: 'tickers2',
-      version: '1.2',
-      displayName: 'Tickers Database2',
-      //estimatedSize: 2000000,
-    };
-
-    const onOpenDatabase = () => {
-      console.log('Database opened2');
-    };
-
-    const onErrorDatabase = error => {
-      console.log('Error2', error);
-    };
-
-    const db = SQLite.openDatabase(
+    //SQLite.deleteDatabase(infoDatabase);
+    const dbLocal = SQLite.openDatabase(
       infoDatabase,
-      onOpenDatabase,
+      onSuccessDatabase,
       onErrorDatabase,
     );
 
-    db.transaction(async tx => {
-      tx.executeSql(
-        `CREATE TABLE IF NOT EXISTS tickers (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-        )`,
-      );
-    });
+    setDb(dbLocal);
   }, []);
+
+  //console.log(tickers);
 
   useEffect(() => {
-    updateTicker({
-      id: 1,
-      symbol: 'TEST',
-      price: 2000,
-    }).then(() => {
-      console.log('Ticker updated');
-      getAllTickerStatesFromDatabase().then(tickerStates => {
-        console.log('Ticker states', tickerStates);
-      });
-    }, []);
-    const link = 'wss://api.decrypto.la/websocket/prices/arg';
-    const ws = new WebSocket(link);
-    ws.onmessage = message => {
-      const data = JSON.parse(message.data);
-      const ticker = {
-        id: data.currencyToken.id,
-        symbol: data.currencyToken.codigo,
-        price: data.dca,
-      };
-
-      setTickers(prevState => {
-        const newState = [...prevState];
-        const indexTicker = prevState.findIndex(
-          ticker => ticker.currencyToken.id === data.currencyToken.id,
+    if (db) {
+      console.log('flag1');
+      db.transaction(tx => {
+        console.log('flag2');
+        // Create table if not exists
+        tx.executeSql(
+          'CREATE TABLE IF NOT EXISTS ticker (id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL, price INTEGER NOT NULL, idToken INTEGER NOT NULL UNIQUE)',
+          [],
+          () => {
+            console.log('flag3');
+            console.log('Table created successfully');
+            tx.executeSql(
+              'SELECT * FROM ticker',
+              [],
+              (tx, results) => {
+                console.log('Results', results);
+                const len = results.rows.length;
+                const tickersLocal = [];
+                for (let i = 0; i < len; i++) {
+                  const row = results.rows.item(i);
+                  tickersLocal.push(row);
+                }
+                setTickers(tickersLocal);
+              },
+              (tx, error) => {
+                console.log('Error', error);
+              },
+            );
+            setTablesCreated(true);
+          },
+          error => {
+            console.log('Error creating table:', error);
+          },
         );
-        if (indexTicker === -1) {
-          newState.push(data);
-        } else {
-          newState[indexTicker] = data;
-        }
-        return newState;
       });
-    };
-  }, []);
+    }
+  }, [db]);
 
-  //console.log('tickers', tickers);
+  const updateOrInsertIfNotExistsTicker = async (ticker, tx) => {
+    console.log('Updating or inserting ticker-----');
+    console.log('flag7');
+    tx.executeSql(
+      `SELECT * FROM ticker WHERE idToken = ?`,
+      [ticker.idToken],
+      (tx, results) => {
+        console.log('flag8');
+        console.log('Results', results, ticker.idToken);
+        if (results && results.rows.length > 0) {
+          console.log('flag11');
+          tx.executeSql(
+            `UPDATE ticker SET price = ?,  symbol = ? WHERE idToken = ?`,
+            [ticker.price, ticker.symbol, ticker.idToken],
+            () => {
+              console.log('Ticker updated');
+            },
+            (tx, error) => {
+              console.log('Error', error);
+            },
+          );
+        } else {
+          console.log('flag9');
+          tx.executeSql(
+            `INSERT INTO ticker (symbol, price, idToken) VALUES (?, ?, ?)`,
+            [ticker.symbol, ticker.price, ticker.idToken],
+            (tx, results) => {
+              console.log('flag12');
+              console.log('Ticker inserted', results);
+            },
+            (tx, error) => {
+              console.log('flag10');
+              console.log('Error', error);
+            },
+          );
+        }
+      },
+      (tx, error) => {
+        console.log('Error', error);
+      },
+    );
+  };
+
+  const updateTicker = async ticker => {
+    console.log('flag5');
+    db.transaction(async tx => {
+      console.log('flag6');
+      updateOrInsertIfNotExistsTicker(ticker, tx);
+    });
+  };
+
+  useEffect(() => {
+    if (db && tablesCreated) {
+      const link = 'wss://api.decrypto.la/websocket/prices/arg';
+      const ws = new WebSocket(link);
+      console.log('flag4');
+      ws.onmessage = message => {
+        const data = JSON.parse(message.data);
+        const ticker = {
+          idToken: data.currencyToken.id,
+          symbol: data.currencyToken.codigo,
+          price: data.dca,
+        };
+        updateTicker(ticker);
+
+        setTickers(prevState => {
+          const newState = [...prevState];
+          const indexTicker = prevState.findIndex(
+            ticker => ticker.idToken === data.currencyToken.id,
+          );
+          if (indexTicker === -1) {
+            newState.push(ticker);
+          } else {
+            newState[indexTicker] = ticker;
+          }
+          return newState;
+        });
+      };
+    }
+  }, [db, tablesCreated]);
 
   return (
     <TickersContext.Provider
@@ -88,3 +164,5 @@ export function TickersContextProvider({children}) {
     </TickersContext.Provider>
   );
 }
+
+export default TickersContext;
