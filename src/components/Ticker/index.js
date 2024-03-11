@@ -1,18 +1,19 @@
-import {View, Text, StyleSheet} from 'react-native';
+import {Text, StyleSheet, TouchableOpacity} from 'react-native';
 import React from 'react';
 import PropTypes from 'prop-types';
 
 /**
   @param {string} symbol - The symbol of the ticker
   @param {number} price - The price of the ticker
+  @param {function} setTickerSelected - Function to set the selected ticker
  */
 
-const Ticker = ({symbol, price}) => {
+const Ticker = ({symbol, price, setTickerSelected}) => {
   return (
-    <View style={styles.container}>
+    <TouchableOpacity style={styles.container} onPress={setTickerSelected}>
       <Text>{symbol}</Text>
       <Text>{price}</Text>
-    </View>
+    </TouchableOpacity>
   );
 };
 
@@ -21,6 +22,7 @@ export default Ticker;
 Ticker.propTypes = {
   symbol: PropTypes.string,
   price: PropTypes.number,
+  setTickerSelected: PropTypes.func,
 };
 
 const styles = StyleSheet.create({

@@ -32,25 +32,26 @@ export function TickersContextProvider({children}) {
     setDb(dbLocal);
   }, []);
 
-  //console.log(tickers);
-
   useEffect(() => {
     if (db) {
-      console.log('flag1');
       db.transaction(tx => {
-        console.log('flag2');
-        // Create table if not exists
         tx.executeSql(
-          'CREATE TABLE IF NOT EXISTS ticker (id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL, price INTEGER NOT NULL, idToken INTEGER NOT NULL UNIQUE)',
+          `CREATE TABLE IF NOT EXISTS ticker
+          (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, 
+            symbol TEXT NOT NULL, 
+            price DECIMAL(35,8) NOT NULL, 
+            idToken INTEGER NOT NULL UNIQUE,
+            currencyOrigin TEXT NOT NULL,
+            currencyDestination TEXT NOT NULL,
+            change TEXT NOT NULL
+          )`,
           [],
           () => {
-            console.log('flag3');
-            console.log('Table created successfully');
             tx.executeSql(
               'SELECT * FROM ticker',
               [],
               (tx, results) => {
-                console.log('Results', results);
                 const len = results.rows.length;
                 const tickersLocal = [];
                 for (let i = 0; i < len; i++) {
@@ -74,18 +75,19 @@ export function TickersContextProvider({children}) {
   }, [db]);
 
   const updateOrInsertIfNotExistsTicker = async (ticker, tx) => {
-    console.log('Updating or inserting ticker-----');
-    console.log('flag7');
     tx.executeSql(
       `SELECT * FROM ticker WHERE idToken = ?`,
       [ticker.idToken],
       (tx, results) => {
-        console.log('flag8');
-        console.log('Results', results, ticker.idToken);
         if (results && results.rows.length > 0) {
-          console.log('flag11');
           tx.executeSql(
-            `UPDATE ticker SET price = ?,  symbol = ? WHERE idToken = ?`,
+            `UPDATE ticker 
+              SET price = ?,  
+              symbol = ?,
+              currencyOrigin = ?,
+              currencyDestination = ?,
+              change = ?
+             WHERE idToken = ?`,
             [ticker.price, ticker.symbol, ticker.idToken],
             () => {
               console.log('Ticker updated');
@@ -95,16 +97,22 @@ export function TickersContextProvider({children}) {
             },
           );
         } else {
-          console.log('flag9');
           tx.executeSql(
-            `INSERT INTO ticker (symbol, price, idToken) VALUES (?, ?, ?)`,
-            [ticker.symbol, ticker.price, ticker.idToken],
+            `INSERT INTO ticker
+            (symbol, price, idToken, currencyOrigin, currencyDestination, change) 
+            VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+              ticker.symbol,
+              ticker.price,
+              ticker.idToken,
+              ticker.currencyOrigin,
+              ticker.currencyDestination,
+              ticker.change,
+            ],
             (tx, results) => {
-              console.log('flag12');
               console.log('Ticker inserted', results);
             },
             (tx, error) => {
-              console.log('flag10');
               console.log('Error', error);
             },
           );
@@ -117,9 +125,7 @@ export function TickersContextProvider({children}) {
   };
 
   const updateTicker = async ticker => {
-    console.log('flag5');
     db.transaction(async tx => {
-      console.log('flag6');
       updateOrInsertIfNotExistsTicker(ticker, tx);
     });
   };
@@ -128,14 +134,19 @@ export function TickersContextProvider({children}) {
     if (db && tablesCreated) {
       const link = 'wss://api.decrypto.la/websocket/prices/arg';
       const ws = new WebSocket(link);
-      console.log('flag4');
+
       ws.onmessage = message => {
         const data = JSON.parse(message.data);
+        console.log('Data', data);
         const ticker = {
           idToken: data.currencyToken.id,
           symbol: data.currencyToken.codigo,
           price: data.dca,
+          currencyOrigin: data.currencyToken.monedaOrigen.description,
+          currencyDestination: data.currencyToken.monedaDestino.description,
+          change: data.change,
         };
+        console.log('Ticker--', ticker);
         updateTicker(ticker);
 
         setTickers(prevState => {
